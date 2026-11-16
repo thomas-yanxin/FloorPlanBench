@@ -1,0 +1,29 @@
+[project]
+name = "floorplanbench"
+version = "0.1.0"
+description = "A visual, OpenAI-compatible VLM floor-plan benchmark built with Gradio."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = [
+  "gradio>=6.0,<7",
+  "openai>=2.0,<3",
+  "pydantic>=2.11,<3",
+  "pillow>=11,<13",
+  "plotly>=6,<7",
+  "shapely>=2.1,<3",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.12"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+
