@@ -42,12 +42,25 @@ See the [Responses migration guide](https://developers.openai.com/api/docs/guide
 [model parameter reference](https://developers.openai.com/api/docs/guides/latest-model).
 
 Plotly reconstructs walls and rooms beside the source image, with pan and zoom.
+Wall faces are united into a continuous metric surface with mitred junctions; free ends and
+unclassified gaps are preserved. Labels fit inside room polygons and scale with the drawing,
+including room areas when space permits. Rendering does not snap or correct model coordinates.
 Structured JSON, raw responses, run metadata, and session history are under **Result details**.
 Bilingual room names use their English label in the drawing; original labels remain in hover text and JSON.
 
-The default prompt comes from [Pascal Editor](https://github.com/pascalorg/editor/blob/559c0d16133b3aa82fa73b5e7ba42d49aaf160d4/packages/mcp/src/tools/vision/analyze-floorplan-image.ts).
-Its contract uses wall coordinates in metres and room polygons, without openings or furniture.
-The original prompt, source reference, and MIT license are in `floorplanbench/prompts/`.
+The default prompt is `floorplanbench/prompts/reconstruction_floorplan.txt`. It specifies wall
+centrelines, interior room boundaries, consistent junctions and optional doors, windows and passages.
+Each opening references a wall by zero-based `wallIndex`; `offset` and `width` are distances in metres
+along that wall from its start. The renderer cuts the host wall and draws jambs, window lines, and
+door leaves/arcs when the model supplies a hinge and swing direction. Missing swings are not guessed.
+Out-of-bounds openings are skipped with a warning. Furniture is outside this contract.
+
+This extends the wall/room contract from
+[Pascal Editor](https://github.com/pascalorg/editor/blob/559c0d16133b3aa82fa73b5e7ba42d49aaf160d4/packages/mcp/src/tools/vision/analyze-floorplan-image.ts).
+The unchanged original prompt, source reference, and MIT license remain in `floorplanbench/prompts/`.
+Old saved results without openings still render; their unclassified gaps cannot recover missing door
+or window information. Use the new default prompt for future recognition runs. Changing prompts or
+the output contract changes benchmark conditions; new runs record contract and renderer versions.
 
 ## Run history and exports
 

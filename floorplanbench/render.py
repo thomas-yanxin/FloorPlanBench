@@ -2,16 +2,17 @@
 
 import html
 import re
-import textwrap
 from collections import Counter
+from math import cos, dist, pi, sin
 
 import plotly.graph_objects as go
-from shapely.ops import polylabel
 
-from .schema import FloorPlan, room_polygon
+from .geometry import opening_frame, polygon_path, wall_surface
+from .labels import fit_label
+from .schema import FloorPlan, room_polygon, valid_opening
 
 PALETTE = ["#e8eef2", "#f1e9dc", "#e4eeea", "#ece8df"]
-INK = "#39434d"
+INK = "#424b50"
 
 
 def room_label(name: str) -> str:
@@ -37,14 +38,65 @@ def room_color(name: str, index: int) -> str:
     return PALETTE[index % len(PALETTE)]
 
 
+def draw_opening(fig, plan, opening, span):
+    a, b, (nx, ny) = opening_frame(plan, opening)
+    thickness = plan.walls[opening.wallIndex].thickness
+    half = thickness / 2 if thickness and thickness > 0 else span * 0.003
+
+    def line(points, color="#72817f", width=0.8):
+        fig.add_shape(
+            type="path",
+            path="M " + " L ".join(f"{x},{y}" for x, y in points),
+            line=dict(color=color, width=width),
+            layer="above",
+        )
+
+    for x, y in (a, b):
+        line([(x - nx * half, y - ny * half), (x + nx * half, y + ny * half)], INK)
+    if opening.kind == "window":
+        for offset in (-half, -half / 3, half / 3, half):
+            line(
+                [
+                    (a[0] + nx * offset, a[1] + ny * offset),
+                    (b[0] + nx * offset, b[1] + ny * offset),
+                ],
+                "#82979f",
+                0.65,
+            )
+    elif opening.kind == "door" and opening.hinge and opening.swing:
+        hinge, closed = (a, b) if opening.hinge == "start" else (b, a)
+        side = 1 if opening.swing == "left" else -1
+        dx, dy = closed[0] - hinge[0], closed[1] - hinge[1]
+        ox, oy = nx * opening.width * side, ny * opening.width * side
+        line([hinge, (hinge[0] + ox, hinge[1] + oy)], "#697975", 1)
+        arc = [
+            (hinge[0] + dx * cos(t) + ox * sin(t), hinge[1] + dy * cos(t) + oy * sin(t))
+            for t in (i * pi / 64 for i in range(33))
+        ]
+        line(arc, "#9aa7a1", 0.65)
+
+
 def plot_plan(plan: FloorPlan) -> go.Figure:
     fig = go.Figure()
+    polygons = [room_polygon(room) for room in plan.rooms]
+    points = [p for wall in plan.walls for p in (wall.start, wall.end)] + [
+        p
+        for room, polygon in zip(plan.rooms, polygons, strict=True)
+        if polygon is not None
+        for p in room.polygon
+    ]
+    span = (
+        max((max(p[i] for p in points) - min(p[i] for p in points) for i in (0, 1)), default=1)
+        if points
+        else 1
+    )
+    span = max(span, 1e-3)
     labels = [room_label(room.name) for room in plan.rooms]
     counts = Counter(labels)
     seen = Counter()
     for index, room in enumerate(plan.rooms):
         pts = room.polygon
-        polygon = room_polygon(room)
+        polygon = polygons[index]
         if polygon is None:
             continue
         closed = pts + pts[:1]
@@ -58,7 +110,7 @@ def plot_plan(plan: FloorPlan) -> go.Figure:
                 y=[p[1] for p in closed],
                 fill="toself",
                 fillcolor=room_color(room.name, index),
-                line=dict(color="rgba(57,67,77,0.12)", width=0.7),
+                line=dict(width=0),
                 mode="lines",
                 name=name,
                 hoveron="fills",
@@ -69,86 +121,92 @@ def plot_plan(plan: FloorPlan) -> go.Figure:
         seen[label] += 1
         if counts[label] > 1:
             label += f" {seen[label]}"
-        label = html.escape(label)
-        if not re.search(r"[\u4e00-\u9fff]", label):
-            label = "<br>".join(textwrap.wrap(label, width=14))
-        label_point = polylabel(polygon, tolerance=0.03)
-        label_radius = label_point.distance(polygon.boundary)
-        text = f"<b>{label}</b>"
-        if area_text and label_radius >= 1.35:
-            display_area = f"{area:.1f}".removesuffix(".0")
-            text += f'<br><span style="font-size:10px;color:#65716d">≈ {display_area} m²</span>'
-        fig.add_annotation(
-            x=label_point.x,
-            y=label_point.y,
-            text=text,
-            showarrow=False,
-            font=dict(size=11 if label_radius < 1.35 else 12, color="#34413f"),
-            align="center",
-            borderpad=0,
+        layout = fit_label(polygon, label, area, span)
+        if layout:
+            # A vector label in world units fits its polygon at every viewport and zoom level.
+            fig.add_layout_image(
+                source=layout.svg_source(),
+                xref="x",
+                yref="y",
+                x=layout.x,
+                y=layout.y,
+                sizex=layout.width,
+                sizey=layout.height,
+                xanchor="center",
+                yanchor="middle",
+                sizing="contain",
+                layer="above",
+                name=html.escape(label),
+            )
+    surface = wall_surface(plan)
+    if not surface.is_empty:
+        fig.add_shape(
+            type="path",
+            path=polygon_path(surface),
+            fillrule="evenodd",
+            fillcolor=INK,
+            line=dict(color=INK, width=0.35),
         )
-    # Scatter line widths are pixels. Plotly shapes display the actual wall thickness in metres.
-    for wall in plan.walls:
+    # Unknown thickness remains a display hairline rather than an invented metric wall.
+    for index, wall in enumerate(plan.walls):
         a, b = wall.start, wall.end
-        length = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
-        if length == 0:
+        length = dist(a, b)
+        if length == 0 or (wall.thickness or 0) > 0:
             continue
-        if wall.thickness and wall.thickness > 0:
-            dx = -(b[1] - a[1]) / length * wall.thickness / 2
-            dy = (b[0] - a[0]) / length * wall.thickness / 2
-            pts = [
-                (a[0] + dx, a[1] + dy),
-                (b[0] + dx, b[1] + dy),
-                (b[0] - dx, b[1] - dy),
-                (a[0] - dx, a[1] - dy),
-            ]
-            fig.add_shape(
-                type="path",
-                path="M " + " L ".join(f"{x},{y}" for x, y in pts) + " Z",
-                fillcolor=INK,
-                line=dict(width=0),
-            )
-        else:
-            fig.add_shape(
-                type="line",
-                x0=a[0],
-                y0=a[1],
-                x1=b[0],
-                y1=b[1],
-                line=dict(color=INK, width=3),
-            )
-    # Always use coordinates rather than the model's possibly inconsistent dimension estimates.
-    all_points = [p for w in plan.walls for p in (w.start, w.end)] + [
-        p for r in plan.rooms for p in r.polygon
-    ]
-    if all_points:
-        xs, ys = zip(*all_points, strict=True)
-        span = max(max(xs) - min(xs), max(ys) - min(ys), 1)
-        pad = span * 0.06
+        intervals = sorted(
+            (o.offset, o.offset + o.width)
+            for o in plan.openings
+            if o.wallIndex == index and valid_opening(plan, o)
+        )
+        cursor = 0
+        for start, end in [*intervals, (length, length)]:
+            if start > cursor:
+                start_point = [a[i] + (b[i] - a[i]) * cursor / length for i in (0, 1)]
+                end_point = [a[i] + (b[i] - a[i]) * start / length for i in (0, 1)]
+                fig.add_shape(
+                    type="line",
+                    x0=start_point[0],
+                    y0=start_point[1],
+                    x1=end_point[0],
+                    y1=end_point[1],
+                    line=dict(color=INK, width=1.5),
+                )
+            cursor = max(cursor, end)
+    for opening in plan.openings:
+        if valid_opening(plan, opening):
+            draw_opening(fig, plan, opening, span)
+    # Frame the physical wall faces, not just their centrelines.
+    if not surface.is_empty:
+        x0, y0, x1, y1 = surface.bounds
+        points.extend([(x0, y0), (x1, y1)])
+    if points:
+        xs, ys = zip(*points, strict=True)
+        span = max(max(xs) - min(xs), max(ys) - min(ys), 1e-3)
+        pad = span * 0.045
         fig.update_xaxes(range=[min(xs) - pad, max(xs) + pad])
-        fig.update_yaxes(range=[min(ys) - span * 0.14, max(ys) + pad])
+        fig.update_yaxes(range=[min(ys) - span * 0.12, max(ys) + pad])
         scale = next((n for n in (10, 5, 2, 1, 0.5, 0.2, 0.1) if n <= span * 0.18), 0.1)
-        scale_y = min(ys) - span * 0.08
+        scale_y = min(ys) - span * 0.065
         fig.add_shape(
             type="line",
             x0=min(xs),
             x1=min(xs) + scale,
             y0=scale_y,
             y1=scale_y,
-            line=dict(color="#7d868b", width=1.5),
+            line=dict(color="#7d868b", width=1),
         )
         for x in (min(xs), min(xs) + scale):
             fig.add_shape(
                 type="line",
                 x0=x,
                 x1=x,
-                y0=scale_y - span * 0.008,
-                y1=scale_y + span * 0.008,
-                line=dict(color="#7d868b", width=1.5),
+                y0=scale_y - span * 0.006,
+                y1=scale_y + span * 0.006,
+                line=dict(color="#7d868b", width=1),
             )
         fig.add_annotation(
             x=min(xs) + scale / 2,
-            y=scale_y - span * 0.025,
+            y=scale_y - span * 0.022,
             text=f"{scale:g} m",
             showarrow=False,
             font=dict(size=10, color="#69747c"),
@@ -163,6 +221,7 @@ def plot_plan(plan: FloorPlan) -> go.Figure:
         plot_bgcolor="white",
         font=dict(family="Inter, PingFang SC, Microsoft YaHei, sans-serif", color="#6d7a8b"),
         hoverlabel=dict(bgcolor="white", bordercolor="#dce3e5", font_size=12),
+        modebar_remove=["select2d", "lasso2d", "autoScale2d"],
     )
     fig.update_xaxes(
         showgrid=False,

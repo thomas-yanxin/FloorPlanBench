@@ -10,7 +10,7 @@ from urllib.parse import urlsplit, urlunsplit
 from openai import AsyncOpenAI
 from PIL import Image, ImageOps
 
-from .schema import floorplan_json_schema
+from .schema import CONTRACT_VERSION, RENDERER_VERSION, floorplan_json_schema
 
 
 def digest(value: bytes | str) -> str:
@@ -180,8 +180,8 @@ class RunConfig:
                     "parameters": self.parameters(),
                     "api": self.api,
                     "image_detail": self.image_detail,
-                    "contract": "pascal-v2",
-                    "renderer": "plotly-v1",
+                    "contract": CONTRACT_VERSION,
+                    "renderer": RENDERER_VERSION,
                 },
                 sort_keys=True,
                 ensure_ascii=False,

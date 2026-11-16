@@ -231,6 +231,23 @@ def test_strict_schema_uses_supported_coordinate_arrays_and_nullable_fields():
 
 
 @pytest.mark.parametrize("api", ["chat_completions", "responses"])
+def test_hosted_openings_survive_sdk_parsing_and_storage(endpoint, tmp_path, api):
+    sample = dict(
+        EXAMPLE,
+        openings=[
+            dict(wallIndex=0, offset=1.25, width=0.9, kind="door", hinge="end", swing="left")
+        ],
+    )
+    endpoint["text"] = json.dumps(sample)
+    store = Store(tmp_path / "openings.sqlite3")
+    result = run(store, replace(config(endpoint), api_mode=api, response_format="json_schema"))
+    assert result["success"] and result["warnings"] == []
+    assert result["parsed"]["openings"] == sample["openings"]
+    assert store.get(result["id"], "session-one")[0]["parsed"]["openings"] == sample["openings"]
+    assert result["contract"] == "floorplan-v3" and result["renderer"] == "plotly-v2"
+
+
+@pytest.mark.parametrize("api", ["chat_completions", "responses"])
 def test_refusals_remain_failed_with_reason_preserved(endpoint, tmp_path, api):
     endpoint["text"] = ""
     endpoint["refusal"] = "Cannot process this request."
@@ -396,44 +413,44 @@ def test_ui_recognition_history_and_export(endpoint, tmp_path):
 
     app = build_app(tmp_path / "ui.sqlite3")
     fn = next(fn.fn for fn in app.fns.values() if fn.fn and fn.fn.__name__ == "evaluate")
+    callbacks = {fn.fn.__name__: fn.fn for fn in app.fns.values() if fn.fn}
+    button = next(block for block in app.blocks.values() if block.elem_id == "run-button")
+    assert callbacks["prepare_recognition"]()[button]["interactive"] is False
 
     async def evaluate():
-        return [
-            update
-            async for update in fn(
-                example_image(),
-                endpoint["url"],
-                "secret-test-key",
-                "test-vlm",
-                DEFAULT_PROMPT,
-                16384,
-                "auto",
-                False,
-                0,
-                False,
-                1,
-                None,
-                "xhigh",
-                "json_schema",
-                "high",
-                2048,
-                120,
-                "ui-session",
-                "responses",
-            )
-        ]
+        return await fn(
+            example_image(),
+            endpoint["url"],
+            "secret-test-key",
+            "test-vlm",
+            DEFAULT_PROMPT,
+            16384,
+            "auto",
+            False,
+            0,
+            False,
+            1,
+            None,
+            "xhigh",
+            "json_schema",
+            "high",
+            2048,
+            120,
+            "ui-session",
+            "responses",
+        )
 
     updates = asyncio.run(evaluate())
+    assert updates[button]["interactive"] is True
     result = next(
         value
-        for value in updates[-1].values()
+        for value in updates.values()
         if isinstance(value, dict) and "raw" in value and "api" in value
     )
     assert result["success"] and result["api"] == "responses"
     assert result["request_parameters"]["reasoning"] == {"effort": "xhigh"}
     assert endpoint["requests"][0]["path"] == "/v1/responses"
 
-    callbacks = {fn.fn.__name__: fn.fn for fn in app.fns.values() if fn.fn}
     restored = callbacks["restore_result"](result["id"], "ui-session")
     history = next(
         value for value in restored.values() if isinstance(value, dict) and "choices" in value
@@ -571,7 +588,13 @@ def test_shapely_checks_invalid_polygons_without_repair_and_places_labels_inside
     assert plan.rooms[0].polygon == [(0, 0), (2, 2), (0, 2), (2, 0)]
     sample["rooms"][0]["polygon"] = [[0, 0], [4, 0], [4, 1], [1, 1], [1, 4], [0, 4]]
     plan, _ = parse_plan(json.dumps(sample))
-    from shapely.geometry import Point
+    from shapely.geometry import box
 
-    annotation = plot_plan(plan).layout.annotations[0]
-    assert room_polygon(plan.rooms[0]).contains(Point(annotation.x, annotation.y))
+    label = plot_plan(plan).layout.images[0]
+    bounds = box(
+        label.x - label.sizex / 2,
+        label.y - label.sizey / 2,
+        label.x + label.sizex / 2,
+        label.y + label.sizey / 2,
+    )
+    assert room_polygon(plan.rooms[0]).contains(bounds)

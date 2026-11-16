@@ -18,6 +18,8 @@ footer { display: none !important; }
 #run-button { background: #315bea; border: 0; color: white; font-weight: 650; min-height: 46px; }
 #run-button:hover { background: #254dd4; }
 #status { min-height: 24px; font-size: 13px; color: #6b778b; }
+#workspace [data-testid="status-tracker"].generating { animation: none !important; border: 0 !important; }
+#workspace [data-testid="status-tracker"] :is(.progress-text, .eta-bar) { display: none !important; }
 @media (max-width: 900px) {
  #settings, #workspace, .canvas-column { flex-basis: 100% !important; min-width: 0 !important; }
  #settings { padding: 16px; }

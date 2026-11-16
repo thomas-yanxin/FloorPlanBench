@@ -1,13 +1,17 @@
-"""Pascal's wire format, with explicit local limits for displaying untrusted output."""
+"""Floor-plan contract, extending Pascal's format with hosted openings."""
 
 import json
 import re
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from shapely.geometry import Polygon
 
-DEFAULT_PROMPT = (Path(__file__).parent / "prompts/pascal_floorplan.txt").read_text().rstrip()
+PROMPTS = Path(__file__).parent / "prompts"
+DEFAULT_PROMPT = (PROMPTS / "reconstruction_floorplan.txt").read_text().rstrip()
+CONTRACT_VERSION = "floorplan-v3"
+RENDERER_VERSION = "plotly-v2"
 
 
 class PascalModel(BaseModel):
@@ -31,9 +35,19 @@ class Dimensions(PascalModel):
     depthM: float
 
 
+class Opening(PascalModel):
+    wallIndex: int = Field(ge=0)
+    offset: float = Field(ge=0)
+    width: float = Field(gt=0)
+    kind: Literal["door", "window", "opening"]
+    hinge: Literal["start", "end"] | None = None
+    swing: Literal["left", "right"] | None = None
+
+
 class FloorPlan(PascalModel):
     walls: list[Wall] = Field(max_length=2000)
     rooms: list[Room] = Field(max_length=500)
+    openings: list[Opening] = Field(default_factory=list, max_length=2000)
     approximateDimensions: Dimensions
     confidence: float = Field(ge=0, le=1)
 
@@ -83,7 +97,18 @@ def parse_plan(raw: str) -> tuple[FloorPlan, list[str]]:
         warnings.append("Skipped invalid room polygons.")
     if plan.approximateDimensions.widthM <= 0 or plan.approximateDimensions.depthM <= 0:
         warnings.append("Invalid estimated dimensions; the view uses coordinates.")
+    for index, opening in enumerate(plan.openings):
+        if not valid_opening(plan, opening):
+            warnings.append(f"Skipped opening {index}: outside its host wall.")
     return plan, warnings
+
+
+def valid_opening(plan: FloorPlan, opening: Opening) -> bool:
+    if opening.wallIndex >= len(plan.walls):
+        return False
+    wall = plan.walls[opening.wallIndex]
+    length = sum((b - a) ** 2 for a, b in zip(wall.start, wall.end, strict=True)) ** 0.5
+    return length > 0 and opening.offset + opening.width <= length + 1e-8
 
 
 def renderable(plan: FloorPlan) -> bool:

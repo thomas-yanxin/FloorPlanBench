@@ -7,7 +7,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError
 from PIL import Image
 
 from .client import RunConfig, digest, prepare_image, recognize
-from .schema import parse_plan, renderable
+from .schema import CONTRACT_VERSION, RENDERER_VERSION, parse_plan, renderable
 from .storage import Store
 
 
@@ -36,6 +36,8 @@ async def run_model(
         "model": config.model,
         "endpoint": config.base_url,
         "protocol": config.protocol(image_bytes),
+        "contract": CONTRACT_VERSION,
+        "renderer": RENDERER_VERSION,
         "image_sha256": digest(image_bytes),
         "prompt_sha256": digest(config.prompt),
         "config": asdict(config),

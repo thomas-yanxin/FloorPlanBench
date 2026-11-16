@@ -79,6 +79,7 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
             current: run,
             original: gr.update(interactive=True),
             run_button: gr.update(interactive=True),
+            examples.dataset: gr.update(visible=True),
         }
 
     with gr.Blocks(title="FloorPlanBench", analytics_enabled=False) as demo:
@@ -182,6 +183,16 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
                             elem_classes="canvas",
                             elem_id="reconstruction",
                         )
+                examples = gr.Examples(
+                    examples=[[str(ROOT / "assets/example-floorplan.png")]],
+                    inputs=[original],
+                    label="Example",
+                    elem_id="floorplan-example",
+                    cache_examples=False,
+                    run_on_click=False,
+                    preload=False,
+                    api_visibility="private",
+                )
                 status = gr.Markdown("", elem_id="status", visible=False)
                 with gr.Accordion("Result details", open=False):
                     with gr.Tabs():
@@ -190,6 +201,7 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
                                 value=None,
                                 show_label=False,
                                 open=True,
+                                elem_id="structured-json",
                             )
                         with gr.Tab("Raw response"):
                             raw = gr.Textbox(
@@ -211,6 +223,7 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
             current,
             original,
             run_button,
+            examples.dataset,
         ]
 
         def clear_result():
@@ -225,7 +238,20 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
                 current: None,
                 original: gr.update(interactive=True),
                 run_button: gr.update(interactive=True),
+                examples.dataset: gr.update(visible=True),
             }
+
+        def prepare_recognition():
+            running = clear_result()
+            running.update(
+                {
+                    original: gr.update(interactive=False),
+                    restore: gr.update(interactive=False),
+                    run_button: gr.update(interactive=False),
+                    examples.dataset: gr.update(visible=False),
+                }
+            )
+            return running
 
         async def evaluate(
             image,
@@ -248,16 +274,6 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
             sid,
             selected_api,
         ):
-            running = clear_result()
-            running.update(
-                {
-                    status: gr.update(value="Recognizing…", visible=True),
-                    original: gr.update(interactive=False),
-                    restore: gr.update(interactive=False),
-                    run_button: gr.update(interactive=False),
-                }
-            )
-            yield running
             try:
                 config = RunConfig(
                     base_url=endpoint,
@@ -279,11 +295,18 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
             except ValueError as exc:
                 cleared = clear_result()
                 cleared[status] = gr.update(value=str(exc), visible=True)
-                yield cleared
-                return
-            yield result_values(result, sid)
+                return cleared
+            return result_values(result, sid)
 
+        # A separate preparation step keeps Gradio's waiting spinner active until the result.
         run_button.click(
+            prepare_recognition,
+            outputs=outputs,
+            queue=False,
+            trigger_mode="once",
+            api_name=False,
+            show_progress="hidden",
+        ).then(
             evaluate,
             inputs=[
                 original,
@@ -310,7 +333,8 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
             concurrency_limit=4,
             trigger_mode="once",
             api_name=False,
-            show_progress="hidden",
+            show_progress="full",
+            show_progress_on=[reconstruction, structured],
         )
 
         def image_changed(image):
@@ -320,6 +344,14 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
 
         original.input(
             image_changed, inputs=original, outputs=outputs, queue=False, show_progress="hidden"
+        )
+        examples.load_input_event.then(
+            image_changed,
+            inputs=original,
+            outputs=outputs,
+            queue=False,
+            show_progress="hidden",
+            api_name=False,
         )
 
         reset_prompt.click(
