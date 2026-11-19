@@ -2,17 +2,17 @@
 .gradio-container { width: 100% !important; min-width: 0 !important; box-sizing: border-box; max-width: 1600px !important; margin: 0 auto !important; padding: 24px clamp(12px, 2.1vw, 32px) 36px !important; }
 .gradio-container > .main { padding: 0 !important; }
 footer { display: none !important; }
-#brand { border-bottom: 1px solid #e3e8f0; padding: 0 0 16px; margin-bottom: 12px; }
-#brand .brandline { display: flex; align-items: center; gap: 16px; color: #142033; }
-#brand svg { width: 32px; height: 32px; flex-shrink: 0; }
-#brand strong { font-size: 24px; letter-spacing: -.9px; font-weight: 750; }
+#brand { border-bottom: 1px solid #e3e8f0; padding: 4px 0 20px; margin-bottom: 16px; text-align: center; }
+#brand h1 { color: #142033; font-size: 28px; letter-spacing: -.025em; font-weight: 750; margin: 0; }
 #settings { background: #f5f7fb; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px; gap: 16px; }
 #settings h2 { font-size: 19px; margin: 0 0 4px; }
 #settings .form { gap: 14px !important; border: 0 !important; background: transparent !important; box-shadow: none !important; }
 #settings .form .block { padding: 0 !important; border: 0 !important; background: transparent !important; }
 #settings textarea, #settings input[type="password"] { border: 1px solid #d4dde9 !important; border-radius: 6px; }
 #workspace { gap: 16px; min-width: 0; }
-.canvas-heading h3 { font-size: 15px !important; color: #263346; margin: 0 !important; }
+.canvas-heading { min-height: 52px; }
+.canvas-heading h3 { font-size: 18px !important; color: #263346; margin: 0 !important; overflow-wrap: anywhere; }
+.canvas-heading p { color: #64748b; font-size: 13px; margin: 4px 0 0 !important; }
 .canvas { height: 420px; min-height: 420px; box-sizing: border-box; border: 1px solid #dce3ee !important; border-radius: 9px !important; overflow: hidden; }
 .canvas-column { gap: 9px !important; min-width: 0; }
 #run-button { background: #315bea; border: 0; color: white; font-weight: 650; min-height: 46px; }

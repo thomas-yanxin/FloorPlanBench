@@ -138,7 +138,7 @@ def test_real_openai_sdk_multimodal_roundtrip(endpoint, tmp_path):
     payload = request["payload"]
     assert payload["messages"][0] == {"role": "system", "content": DEFAULT_PROMPT}
     assert "temperature" not in payload and "max_tokens" not in payload
-    assert payload["max_completion_tokens"] == 16384
+    assert payload["max_completion_tokens"] == 32768
     assert payload["seed"] == 42 and payload["response_format"] == {"type": "json_object"}
     image_block = payload["messages"][1]["content"][0]["image_url"]
     actual_image = base64.b64decode(image_block["url"].split(",", 1)[1])
@@ -173,7 +173,7 @@ def test_official_responses_defaults_roundtrip(endpoint, tmp_path, monkeypatch):
     request = endpoint["requests"][0]
     assert request["path"] == "/v1/responses"
     payload = request["payload"]
-    assert payload["store"] is False and payload["max_output_tokens"] == 16384
+    assert payload["store"] is False and payload["max_output_tokens"] == 32768
     assert (
         not {"max_tokens", "max_completion_tokens", "temperature", "top_p", "seed"} & payload.keys()
     )
@@ -349,7 +349,7 @@ def test_explicit_model_settings_are_not_rewritten_from_model_name(endpoint):
         reasoning_effort="none",
     )
     assert cfg.api == "chat_completions"
-    assert cfg.parameters() == {"max_tokens": 16384, "temperature": 0, "reasoning_effort": "none"}
+    assert cfg.parameters() == {"max_tokens": 32768, "temperature": 0, "reasoning_effort": "none"}
     assert (
         RunConfig("https://api.openai.com.example/v1", "model", DEFAULT_PROMPT).api
         == "chat_completions"
@@ -364,7 +364,7 @@ def test_explicit_model_settings_are_not_rewritten_from_model_name(endpoint):
     assert official.parameters()["temperature"] == 0
     assert official.parameters()["reasoning"] == {"effort": "minimal"}
     chat = replace(official, api_mode="chat_completions")
-    assert chat.parameters()["max_completion_tokens"] == 16384
+    assert chat.parameters()["max_completion_tokens"] == 32768
     assert "max_output_tokens" not in chat.parameters()
 
 
@@ -415,6 +415,7 @@ def test_ui_recognition_history_and_export(endpoint, tmp_path):
     fn = next(fn.fn for fn in app.fns.values() if fn.fn and fn.fn.__name__ == "evaluate")
     callbacks = {fn.fn.__name__: fn.fn for fn in app.fns.values() if fn.fn}
     button = next(block for block in app.blocks.values() if block.elem_id == "run-button")
+    heading = next(block for block in app.blocks.values() if block.elem_id == "output-heading")
     assert callbacks["prepare_recognition"]()[button]["interactive"] is False
 
     async def evaluate():
@@ -424,7 +425,7 @@ def test_ui_recognition_history_and_export(endpoint, tmp_path):
             "secret-test-key",
             "test-vlm",
             DEFAULT_PROMPT,
-            16384,
+            32768,
             "auto",
             False,
             0,
@@ -435,13 +436,16 @@ def test_ui_recognition_history_and_export(endpoint, tmp_path):
             "json_schema",
             "high",
             2048,
-            120,
+            300,
             "ui-session",
             "responses",
         )
 
     updates = asyncio.run(evaluate())
     assert updates[button]["interactive"] is True
+    from html import unescape
+
+    assert unescape(updates[heading]) == "### test-vlm\n\nReconstruction"
     result = next(
         value
         for value in updates.values()
@@ -452,6 +456,7 @@ def test_ui_recognition_history_and_export(endpoint, tmp_path):
     assert endpoint["requests"][0]["path"] == "/v1/responses"
 
     restored = callbacks["restore_result"](result["id"], "ui-session")
+    assert restored[heading] == updates[heading]
     history = next(
         value for value in restored.values() if isinstance(value, dict) and "choices" in value
     )

@@ -10,7 +10,7 @@ from pathlib import Path
 import gradio as gr
 from PIL import Image
 
-from .client import RunConfig
+from .client import DEFAULT_MAX_TOKENS, DEFAULT_TIMEOUT, RunConfig
 from .render import plot_plan
 from .schema import DEFAULT_PROMPT, FloorPlan
 from .service import run_model
@@ -20,6 +20,7 @@ ROOT = Path(__file__).parent
 LOCALE_MODULE = next(
     (Path(gr.__file__).parent / "templates/frontend/assets").glob("core-*.js")
 ).name
+EMPTY_OUTPUT_HEADING = "### Reconstruction\n\nModel output"
 
 
 def theme():
@@ -42,6 +43,12 @@ def theme():
         body_text_size="14px",
         section_header_text_size="14px",
     )
+
+
+def result_heading(model_name: str) -> str:
+    # Encode every character so model identifiers remain text in Markdown and HTML.
+    name = "".join(f"&#{ord(char)};" for char in model_name)
+    return f"### {name}\n\nReconstruction"
 
 
 def build_app(db_path: str | Path | None = None) -> gr.Blocks:
@@ -69,6 +76,7 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
         else:
             note = run["error"]
         return {
+            output_heading: result_heading(run["model"]),
             reconstruction: plot_plan(plan) if run["success"] else None,
             status: gr.update(value=note, visible=True),
             structured: run["parsed"],
@@ -85,23 +93,20 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
     with gr.Blocks(title="FloorPlanBench", analytics_enabled=False) as demo:
         session = gr.State(lambda: uuid.uuid4().hex)
         current = gr.State(None)
-        gr.HTML(
-            """<div class="brandline"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
-            <path d="M3 3h26v26H19v-9H13v9H3V3Z M3 13h9V3 M21 3v10h8"
-            stroke="#263346" stroke-width="2.3" stroke-linejoin="miter"/></svg>
-            <strong>FloorPlanBench</strong></div>""",
-            elem_id="brand",
-        )
+        gr.Markdown("# FloorPlanBench", elem_id="brand")
         with gr.Row(equal_height=False):
             with gr.Column(scale=1, min_width=270, elem_id="settings"):
-                gr.Markdown("## Model connection")
+                gr.Markdown("## Model")
+                model = gr.Textbox(label="Model name", placeholder="Enter a model name")
                 base_url = gr.Textbox(label="Base URL", value="https://api.openai.com/v1")
                 api_key = gr.Textbox(
                     label="API Key",
                     type="password",
                     html_attributes={"autocomplete": "off"},
                 )
-                model = gr.Textbox(label="Model name")
+                run_button = gr.Button(
+                    "Recognize", variant="primary", elem_id="run-button", interactive=False
+                )
                 with gr.Accordion("Advanced settings", open=False):
                     api_mode = gr.Dropdown(
                         [
@@ -113,7 +118,7 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
                         label="API type",
                     )
                     max_tokens = gr.Number(
-                        value=16384,
+                        value=DEFAULT_MAX_TOKENS,
                         minimum=256,
                         maximum=65536,
                         precision=0,
@@ -152,17 +157,17 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
                         value=2048,
                         label="Max image dimension",
                     )
-                    timeout = gr.Slider(10, 300, value=120, step=10, label="Timeout / s")
+                    timeout = gr.Slider(10, 600, value=DEFAULT_TIMEOUT, step=10, label="Timeout / s")
                 with gr.Accordion("Recognition prompt", open=False):
                     prompt = gr.Textbox(value=DEFAULT_PROMPT, show_label=False, lines=15)
                     reset_prompt = gr.Button("Reset to default", size="sm")
-                run_button = gr.Button(
-                    "Recognize", variant="primary", elem_id="run-button", interactive=False
-                )
             with gr.Column(scale=4, min_width=340, elem_id="workspace"):
                 with gr.Row(equal_height=False):
                     with gr.Column(min_width=280, elem_classes="canvas-column"):
-                        gr.Markdown("### Original floor plan", elem_classes="canvas-heading")
+                        gr.Markdown(
+                            "### Original floor plan\n\nInput image",
+                            elem_classes="canvas-heading",
+                        )
                         original = gr.Image(
                             value=None,
                             type="pil",
@@ -176,18 +181,20 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
                             buttons=["download", "fullscreen"],
                         )
                     with gr.Column(min_width=280, elem_classes="canvas-column"):
-                        gr.Markdown("### Reconstruction", elem_classes="canvas-heading")
+                        output_heading = gr.Markdown(
+                            EMPTY_OUTPUT_HEADING,
+                            elem_id="output-heading",
+                            elem_classes="canvas-heading",
+                        )
                         reconstruction = gr.Plot(
                             value=None,
                             show_label=False,
                             elem_classes="canvas",
-                            elem_id="reconstruction",
                         )
                 examples = gr.Examples(
                     examples=[[str(ROOT / "assets/example-floorplan.png")]],
                     inputs=[original],
                     label="Example",
-                    elem_id="floorplan-example",
                     cache_examples=False,
                     run_on_click=False,
                     preload=False,
@@ -201,7 +208,6 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
                                 value=None,
                                 show_label=False,
                                 open=True,
-                                elem_id="structured-json",
                             )
                         with gr.Tab("Raw response"):
                             raw = gr.Textbox(
@@ -213,6 +219,7 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
                     export_run = gr.Button("Export result JSON", size="sm")
                     run_file = gr.File(label="Result file", interactive=False, visible=False)
         outputs = [
+            output_heading,
             reconstruction,
             status,
             structured,
@@ -228,6 +235,7 @@ def build_app(db_path: str | Path | None = None) -> gr.Blocks:
 
         def clear_result():
             return {
+                output_heading: EMPTY_OUTPUT_HEADING,
                 reconstruction: None,
                 status: gr.update(value="", visible=False),
                 structured: None,

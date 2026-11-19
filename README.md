@@ -1,3 +1,20 @@
+---
+title: FloorPlanBench
+emoji: 🏠
+colorFrom: blue
+colorTo: indigo
+sdk: gradio
+sdk_version: 6.32.0
+python_version: "3.12"
+app_file: space.py
+short_description: Compare VLM floor-plan recognition and reconstruction
+license: apache-2.0
+tags:
+  - floor-plan
+  - vision-language-model
+  - benchmark
+---
+
 # FloorPlanBench
 
 A single-process Gradio app for comparing VLM floor-plan recognition and reconstruction through OpenAI-compatible APIs.
@@ -11,6 +28,29 @@ python app.py
 
 Requires Python 3.11+. Open <http://127.0.0.1:7860>.
 Alternatively, use `uv sync --locked` followed by `uv run python app.py`.
+
+## Hugging Face Space
+
+The hosted app is [thomas-yanxin/FloorPlanBench](https://huggingface.co/spaces/thomas-yanxin/FloorPlanBench).
+Visitors supply their own model endpoint and API key. The provider must be reachable
+from the Space; a visitor's `localhost` endpoint is not accessible from Hugging Face.
+History uses the Space's temporary disk and can be lost when the Space restarts.
+Export results you want to keep.
+
+The Space uses the free ZeroGPU tier. `space.py` registers the platform-required GPU
+function without calling it; recognition and rendering do not reserve a GPU.
+The regular local entry point remains `app.py`.
+
+To sync the checkout again, install the `hf` CLI, run `hf auth login`, then:
+
+```bash
+uv run python scripts/sync_huggingface.py
+```
+
+This uploads Git-tracked files and the deployment entry points, generating the
+Space's requirements from `uv.lock` while leaving Gradio, Hugging Face Hub, and
+Gradio's Pydantic dependency under platform management. Local data, credentials,
+caches, and Git history are not uploaded. Uploads rebuild and restart the Space.
 
 ## Recognize a floor plan
 
@@ -28,10 +68,10 @@ Auto recognizes `api.openai.com` and its regional subdomains. Proxy URLs are tre
 Either API can be selected explicitly. There is no automatic API switching or request retry.
 Providers must support image inputs for the selected API; local services without authentication can leave API Key empty.
 
-The default output budget is **16,384 tokens**, which may include reasoning tokens.
+The default output budget is **32,768 tokens**, which may include reasoning tokens.
 Increase Max output tokens or reduce Reasoning effort if a response exhausts its budget.
 `default` uses the model's own setting; supported reasoning and sampling options vary by provider.
-The provider validates model-specific parameter support.
+The default request timeout is **300 seconds**. The provider validates model-specific parameter support.
 
 Response format supports `json_schema`, `json_object`, and `default`.
 Strict schemas use two-number coordinate arrays and required nullable fields.

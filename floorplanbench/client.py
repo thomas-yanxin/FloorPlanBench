@@ -12,6 +12,9 @@ from PIL import Image, ImageOps
 
 from .schema import CONTRACT_VERSION, RENDERER_VERSION, floorplan_json_schema
 
+DEFAULT_MAX_TOKENS = 32768
+DEFAULT_TIMEOUT = 300
+
 
 def digest(value: bytes | str) -> str:
     return hashlib.sha256(value.encode() if isinstance(value, str) else value).hexdigest()
@@ -54,7 +57,7 @@ class RunConfig:
     model: str
     prompt: str
     scale_hint: str = ""
-    max_tokens: int = 16384
+    max_tokens: int = DEFAULT_MAX_TOKENS
     token_parameter: str = "auto"
     temperature: float | None = None
     top_p: float | None = None
@@ -63,7 +66,7 @@ class RunConfig:
     reasoning_effort: str = "default"
     image_detail: str = "auto"
     max_side: int = 2048
-    timeout: float = 120
+    timeout: float = DEFAULT_TIMEOUT
     api_mode: str = "auto"
 
     def __post_init__(self):
